@@ -1,0 +1,11 @@
+{
+  "name": "session-activity",
+  "version": "0.1.0",
+  "description": "Side-effects ledger (/ledger) with a hold on production SQL writes, and a waiting-on tracker for background work",
+  "author": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "homepage": "https://github.com/bennewton999/claude-code-mods",
+  "license": "MIT"
+}

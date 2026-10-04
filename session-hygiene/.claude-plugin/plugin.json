@@ -1,0 +1,11 @@
+{
+  "name": "session-hygiene",
+  "version": "0.1.0",
+  "description": "Tripwires for Ben's memory rules, and a handoff card of open loops left by earlier sessions",
+  "author": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "homepage": "https://github.com/bennewton999/claude-code-mods",
+  "license": "MIT"
+}

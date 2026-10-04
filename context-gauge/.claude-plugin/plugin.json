@@ -1,0 +1,11 @@
+{
+  "name": "context-gauge",
+  "version": "0.1.0",
+  "description": "Context-window gauge with a pre-compaction warning, and a log of what was in flight at each compaction",
+  "author": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "homepage": "https://github.com/bennewton999/claude-code-mods",
+  "license": "MIT"
+}

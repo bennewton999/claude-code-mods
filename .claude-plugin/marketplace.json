@@ -1,0 +1,62 @@
+{
+  "name": "bennewton-mods",
+  "owner": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "metadata": {
+    "description": "Five Claude Code mods for running several sessions at once: a fleet board, a PR-to-production tracker, rule tripwires, a side-effects ledger and a context gauge."
+  },
+  "plugins": [
+    {
+      "name": "session-fleet",
+      "source": "./session-fleet",
+      "description": "Fleet board of live sessions, a needs-you beacon, and a worktree claim guard, shared across sessions",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ben Newton",
+        "url": "https://benenewton.com"
+      }
+    },
+    {
+      "name": "ship-tracker",
+      "source": "./ship-tracker",
+      "description": "Ship-pipeline band (PR, CI, merge, prod deployment, live) and a receipt line under each turn",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ben Newton",
+        "url": "https://benenewton.com"
+      }
+    },
+    {
+      "name": "session-hygiene",
+      "source": "./session-hygiene",
+      "description": "Tripwires for Ben's memory rules, and a handoff card of open loops left by earlier sessions",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ben Newton",
+        "url": "https://benenewton.com"
+      }
+    },
+    {
+      "name": "session-activity",
+      "source": "./session-activity",
+      "description": "Side-effects ledger (/ledger) with a hold on production SQL writes, and a waiting-on tracker for background work",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ben Newton",
+        "url": "https://benenewton.com"
+      }
+    },
+    {
+      "name": "context-gauge",
+      "source": "./context-gauge",
+      "description": "Context-window gauge with a pre-compaction warning, and a log of what was in flight at each compaction",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ben Newton",
+        "url": "https://benenewton.com"
+      }
+    }
+  ]
+}

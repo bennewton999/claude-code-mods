@@ -1,0 +1,11 @@
+{
+  "name": "ship-tracker",
+  "version": "0.1.0",
+  "description": "Ship-pipeline band (PR, CI, merge, prod deployment, live) and a receipt line under each turn",
+  "author": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "homepage": "https://github.com/bennewton999/claude-code-mods",
+  "license": "MIT"
+}
