@@ -1,11 +1,19 @@
 {
   "name": "session-fleet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fleet board of live sessions, a needs-you beacon, and a worktree claim guard, shared across sessions",
   "author": {
     "name": "Ben Newton",
     "url": "https://benenewton.com"
   },
   "homepage": "https://github.com/bennewton999/claude-code-mods",
-  "license": "MIT"
+  "license": "MIT",
+  "userConfig": {
+    "projectPills": {
+      "type": "string",
+      "title": "Project pills",
+      "description": "Named pills for your projects: Label:regex:color entries separated by ';', the regex tested against the repo folder name (e.g. Work:acme|billing:#2563eb). Other repos show their folder name in gray.",
+      "default": ""
+    }
+  }
 }

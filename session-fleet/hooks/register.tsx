@@ -2,7 +2,8 @@ import type { EngineInterface as Engine, Register, Timer } from 'claude-code'
 
 // session-fleet: one registry of live sessions in $.store (shared by every
 // session on the machine), read three ways:
-//   1. /fleet opens a pane listing every live session
+//   1. /fleet opens a pane listing every live session; click a desktop
+//      session's title to switch to it, pills tag its project
 //   2. the band above the prompt flags other sessions that are waiting on you
 //   3. edits and mutating git in a worktree another live session claimed first
 //      are held with a question naming that session
@@ -32,6 +33,7 @@ type Rec = {
   lastAt: number
   beat: number
   claims: Record<string, Claim>
+  hostId?: string | null // desktop app session id (local_…), null in a terminal
 }
 
 const GIT_MUTATION =
@@ -51,6 +53,7 @@ const me: Rec = {
   lastAt: 0,
   beat: 0,
   claims: {},
+  hostId: null,
 }
 
 let lastWrite = 0
@@ -72,6 +75,41 @@ const shortTree = (p: string) => {
   const wt = p.match(/\.claude\/worktrees\/([^/]+)$/)
   if (wt) return `${(p.split('/.claude/')[0] ?? '').split('/').pop()}:${wt[1]}`
   return home(p)
+}
+
+// Which project a session works in, from its newest worktree or its cwd
+const repoName = (p: string) => (p.split('/.claude/worktrees/')[0] ?? p).split('/').filter(Boolean).pop() ?? ''
+
+type Pill = { label: string; fg: string; bg: string }
+type PillRule = { label: string; test: RegExp; bg: string }
+
+const OTHER_BG = '#4b5563'
+let pillRules: PillRule[] = []
+
+// The projectPills option: `Label:regex:color` entries separated by `;`
+function parseRules(spec: string): PillRule[] {
+  const rules: PillRule[] = []
+  for (const entry of spec.split(';')) {
+    const [label, pattern, color] = entry.split(':').map(x => x.trim())
+    if (!label || !pattern) continue
+    try {
+      rules.push({ label, test: new RegExp(pattern, 'i'), bg: color || OTHER_BG })
+    } catch {
+      // a bad regex skips its entry
+    }
+  }
+  return rules
+}
+
+function pill(r: Rec, now: number): Pill | null {
+  const trees = Object.entries(r.claims)
+    .filter(([, c]) => now - c.lastTouch < CLAIM_MS)
+    .sort((a, b) => b[1].lastTouch - a[1].lastTouch)
+  const dir = trees[0]?.[0] ?? r.cwd
+  const name = repoName(dir)
+  if (!name || /^\/Users\/[^/]+\/?$/.test(dir)) return null // home dir: no project
+  const rule = pillRules.find(p => p.test.test(name))
+  return { label: rule?.label ?? name, fg: 'white', bg: rule?.bg ?? OTHER_BG }
 }
 
 const ago = (now: number, t: number) => {
@@ -212,7 +250,20 @@ async function tick($: Engine) {
   $.ui.invalidate('ui.render')
 }
 
-export const register: Register = on => {
+// Show another desktop session: the app's own deep link, as a sidebar click
+async function switchTo($: Engine, r: Rec) {
+  if (!r.hostId || !/^[\w-]+$/.test(r.hostId)) return
+  try {
+    const res = await $.process.run(['open', `claude://claude.ai/epitaxy/${r.hostId}`], { timeoutMs: 5000 })
+    if (res.exitCode !== 0) $.ui.toast(`Could not switch to ${r.task || r.id.slice(0, 8)}`)
+  } catch {
+    $.ui.toast(`Could not switch to ${r.task || r.id.slice(0, 8)}`)
+  }
+}
+
+export const register: Register = (on, options) => {
+  pillRules = parseRules(typeof options.projectPills === 'string' ? options.projectPills : '')
+
   on('session.start', async ($, e, next) => {
     me.id = await $.session.id()
     me.cwd = await $.session.cwd()
@@ -229,6 +280,12 @@ export const register: Register = on => {
       }
     }
     me.lastAt = me.lastAt || (await $.clock.now())
+    try {
+      const env = await $.process.run(['printenv', 'CLAUDE_CODE_HOST_SESSION_ID'], { timeoutMs: 3000 })
+      me.hostId = env.exitCode === 0 && env.stdout.trim() ? env.stdout.trim() : null
+    } catch {
+      me.hostId = null
+    }
     await save($, true)
     void refreshRepo($)
 
@@ -402,7 +459,7 @@ export const register: Register = on => {
 
   // 1. Fleet board pane
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const now = await $.clock.now()
     const order: Record<Phase, number> = { waiting: 0, working: 1, idle: 2 }
     const live = (await all($))
@@ -430,11 +487,24 @@ export const register: Register = on => {
           const where = trees.length ? trees.join(', ') : home(r.cwd)
           return (
             <Box key={r.id} flexDirection="column">
-              <Text>
-                <Text color={color[r.phase]}>{dot[r.phase]} </Text>
-                <Text bold>{short(r.task || '(no prompt yet)', cols - 12)}</Text>
-                {r.id === me.id && <Text dimColor> (this)</Text>}
-              </Text>
+              <Box gap={1}>
+                <Text color={color[r.phase]}>{dot[r.phase]}</Text>
+                {(() => {
+                  const p = pill(r, now)
+                  return p ? <Text color={p.fg} backgroundColor={p.bg} bold>{` ${p.label} `}</Text> : null
+                })()}
+                {r.hostId && r.id !== me.id ? (
+                  <Button
+                    key={`go-${r.id}`}
+                    label={short(r.task || '(no prompt yet)', cols - 24)}
+                    plain
+                    onPress={() => void switchTo($, r)}
+                  />
+                ) : (
+                  <Text bold>{short(r.task || '(no prompt yet)', cols - 24)}</Text>
+                )}
+                {r.id === me.id && <Text dimColor>(this)</Text>}
+              </Box>
               {r.phase === 'waiting' && (
                 <Text color="yellow">  {short(`${r.waitingWhy ?? 'waiting'} · ${ago(now, r.waitingSince ?? r.lastAt)}`, cols - 2)}</Text>
               )}
