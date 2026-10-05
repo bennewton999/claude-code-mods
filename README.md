@@ -59,7 +59,8 @@ Load them in every session by adding the folders to `env` in `~/.claude/settings
 ```json
 {
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "/Users/you/claude-code-mods/session-fleet:/Users/you/claude-code-mods/ship-tracker:/Users/you/claude-code-mods/session-hygiene:/Users/you/claude-code-mods/session-activity:/Users/you/claude-code-mods/context-gauge"
+    "CLAUDE_CODE_PLUGIN_DIRS": "/Users/you/claude-code-mods/session-fleet:/Users/you/claude-code-mods/ship-tracker:/Users/you/claude-code-mods/session-hygiene:/Users/you/claude-code-mods/session-activity:/Users/you/claude-code-mods/context-gauge",
+    "CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"
   }
 }
 ```
@@ -70,7 +71,7 @@ Or try one for a single session:
 claude --plugin-dir ~/claude-code-mods/session-fleet
 ```
 
-Sessions that were already open pick them up after a restart.
+`CLAUDE_CODE_PLUGIN_DIR_WATCH` makes desktop app sessions hot-reload a mod when its files change (an interactive terminal session already does). A session reads it at startup, so sessions that were already open pick up the mods, and the watch, after one restart.
 
 ## What each one does
 
