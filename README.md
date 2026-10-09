@@ -1,5 +1,7 @@
 # Claude Code mods for running a lot of sessions at once
 
+[![HOL Guard Scanner](https://img.shields.io/badge/HOL%20Guard-passing-00a67e)](https://github.com/hashgraph-online/hol-guard)
+
 Five [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview) built from how I actually use Claude Code: four to six sessions at a time, mostly in one repo, a lot of PRs going to production, and a pile of rules I keep forgetting to check.
 
 Claude built all five. The full story, with screenshots, videos and the bugs a real run caught, is on my site:
