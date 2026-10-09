@@ -1,11 +1,58 @@
 {
   "name": "session-hygiene",
-  "version": "0.1.0",
-  "description": "Tripwires for Ben's memory rules, and a handoff card of open loops left by earlier sessions",
+  "version": "0.2.0",
+  "description": "Configurable tripwires for the rules you keep forgetting, and a handoff card of open loops left by earlier sessions",
   "author": {
     "name": "Ben Newton",
     "url": "https://benenewton.com"
   },
   "homepage": "https://github.com/bennewton999/claude-code-mods",
-  "license": "MIT"
+  "license": "MIT",
+  "userConfig": {
+    "holdEnvSourcing": {
+      "type": "boolean",
+      "title": "Hold env-file sourcing",
+      "description": "Ask before a command sources a .env file into the shell",
+      "default": true
+    },
+    "mutationCheckTests": {
+      "type": "boolean",
+      "title": "Mutation-check new tests",
+      "description": "Remind Claude to prove a new test file fails without the code it covers",
+      "default": true
+    },
+    "reviewBeforePush": {
+      "type": "boolean",
+      "title": "Review before push",
+      "description": "Flag a git push with edits made since the last local /code-review",
+      "default": false
+    },
+    "uncheckedRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Repos CI doesn't typecheck or build",
+      "description": "Path fragments (e.g. /my-app/). In these repos, flag pushes after TypeScript edits with no typecheck, and merges after package.json or next.config changes with no local build",
+      "default": []
+    },
+    "middlewareRouteRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Next.js repos with a middleware route allowlist",
+      "description": "Path fragments. A new top-level src/app/<route>/page.tsx here gets a reminder to add the route to src/middleware.ts",
+      "default": []
+    },
+    "bannedStrings": {
+      "type": "string",
+      "multiple": true,
+      "title": "Banned strings",
+      "description": "Case-insensitive text that should never be written into a file",
+      "default": []
+    },
+    "supabase": {
+      "type": "boolean",
+      "title": "Supabase rules",
+      "description": "Ask before using a service-role key; after a migration, remind to NOTIFY pgrst and revoke default grants on new tables",
+      "default": false
+    }
+  }
 }

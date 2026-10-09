@@ -1,22 +1,38 @@
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
 // session-hygiene:
-//   8. tripwires for the author's rules (edit RULES_CONFIG below for yours): a dim
-//      transcript line + toast for the user,
-//      and a reminder Claude reads after the tool result. Two rules hold the
-//      call with a question instead (sourcing env files, the service-role key).
+//   8. tripwires, configured through the plugin's options (install screen or
+//      /config): a dim transcript line + toast for the user, and a reminder
+//      Claude reads after the tool result. Two rules hold the call with a
+//      question instead (sourcing env files, a Supabase service-role key).
 //  10. handoff card: each session snapshots its open loops (open PRs, dirty or
 //      unpushed worktrees, a question left unanswered); a new session lists the
 //      ones still open, re-checked live. /handoff shows them again.
 
-// ---- RULES_CONFIG: these are the author's rules. Change them to match your repos. ----
-// Repo path fragment whose builds and PR CI don't typecheck, so TypeScript edits need
-// `npm run typecheck` before a push, and new top-level src/app pages need a middleware entry.
-const STRICT_REPO = '/2024-blog/'
-// Banned strings in written files, with the reason Claude is told.
-const BANNED: Array<{ re: RegExp; name: string; why: string }> = [
-  { re: /audiowide/i, name: 'Audiowide', why: 'The Audiowide font is banned everywhere; replace it with the system stack.' },
-]
+// ---- config: every rule is set by the plugin's userConfig options ----------------
+type Config = {
+  holdEnvSourcing: boolean
+  mutationCheckTests: boolean
+  reviewBeforePush: boolean
+  uncheckedRepos: string[]
+  middlewareRouteRepos: string[]
+  bannedStrings: string[]
+  supabase: boolean
+}
+let cfg: Config = {
+  holdEnvSourcing: true,
+  mutationCheckTests: true,
+  reviewBeforePush: false,
+  uncheckedRepos: [],
+  middlewareRouteRepos: [],
+  bannedStrings: [],
+  supabase: false,
+}
+const list = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []).map(x => String(x).trim()).filter(Boolean)
+const flag = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d)
+const repoMatch = (fp: string, repos: string[]) => repos.find(r => fp.includes(r))
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // ------------------------------------------------------------------------------------
 
 const SNAP = 'h:'
@@ -122,16 +138,17 @@ type Call = { tool: string } & Record<string, unknown>
 async function before($: Engine, call: Call): Promise<string | null> {
   if (call.tool !== 'Bash' || typeof call.command !== 'string') return null
   const c = call.command
-  const holds: Array<[RegExp, string]> = [
-    [
+  const holds: Array<[RegExp, string]> = []
+  if (cfg.holdEnvSourcing)
+    holds.push([
       /(^|[;&|(]\s*)(source|\.)\s+[^\s;&|]*\.env\b|set\s+-a[\s\S]*\.env/,
       'This command sources an env file, loading every secret in it into the shell. Rule: read only the variables a script needs.',
-    ],
-    [
+    ])
+  if (cfg.supabase)
+    holds.push([
       /\$\{?\w*SERVICE_ROLE\w*|service_role_key\s*[=:]/i,
       'This command uses the Supabase service-role key against the production database. Rule: ask the user before any direct prod DB access, reads included.',
-    ],
-  ]
+    ])
   for (const [re, why] of holds) {
     if (!re.test(c)) continue
     let answer = 'Stop'
@@ -152,26 +169,28 @@ async function after($: Engine, call: Call, ok: boolean, isNewFile: boolean, now
 
   if (WRITE_TOOLS.includes(call.tool) && typeof fp === 'string' && ok) {
     lastEdit = now
-    if (/\.(ts|tsx)$/.test(fp) && fp.includes(STRICT_REPO)) lastTsEdit = now
-    if (/\/(package\.json|next\.config\.[cm]?[jt]s)$/.test(fp)) lastBuildDepEdit = now
+    const unchecked = repoMatch(fp, cfg.uncheckedRepos)
+    if (unchecked && /\.(ts|tsx)$/.test(fp)) lastTsEdit = now
+    if (unchecked && /\/(package\.json|next\.config\.[cm]?[jt]s)$/.test(fp)) lastBuildDepEdit = now
 
     const added = String(call.new_string ?? call.content ?? '')
-    for (const b of BANNED)
-      if (b.re.test(added))
-        out.push(trip($, `banned:${b.name}:${fp}`, `${b.name} written into ${fp.split('/').pop()}`, `The text just written to ${fp} contains ${b.name}. ${b.why}`))
+    for (const b of cfg.bannedStrings)
+      if (new RegExp(escapeRe(b), 'i').test(added))
+        out.push(trip($, `banned:${b}:${fp}`, `"${b}" written into ${fp.split('/').pop()}`, `The text just written to ${fp} contains "${b}", which the user has banned. Remove it.`))
 
-    if (isNewFile && /\.(test|spec)\.[cm]?[jt]sx?$/.test(fp))
+    if (cfg.mutationCheckTests && isNewFile && /\.(test|spec)\.[cm]?[jt]sx?$/.test(fp))
       out.push(
         trip($, `mutation:${fp}`, `New test ${fp.split('/').pop()}: mutation-check it`,
           `${fp} is a new test file. Before claiming it covers anything, delete the production code it targets, confirm the test FAILS, then restore from a copy and confirm git diff is empty.`),
       )
 
-    const rel = fp.includes(STRICT_REPO) ? fp.slice(fp.indexOf(STRICT_REPO) + STRICT_REPO.length) : ''
+    const mw = repoMatch(fp, cfg.middlewareRouteRepos)
+    const rel = mw ? fp.slice(fp.indexOf(mw) + mw.length) : ''
     const route = rel.match(/^(?:\.claude\/worktrees\/[^/]+\/)?src\/app\/([^/()[\]]+)\/(?:.*\/)?page\.tsx$/)
-    if (isNewFile && route && !['saas-platform', 'api', 'admin'].includes(route[1]!))
+    if (isNewFile && route && route[1] !== 'api')
       out.push(
         trip($, `route:${route[1]}`, `New page under src/app/${route[1]}: needs middleware passthrough`,
-          `New page under src/app/${route[1]}/. In production it 404s unless /${route[1]}/ is added to BOTH host branches of the passthrough list in src/middleware.ts (localhost AND the production host branch). CI cannot catch this; curl the production URL after deploy.`),
+          `New page under src/app/${route[1]}/. In production it 404s unless /${route[1]}/ is added to the route allowlist in src/middleware.ts (every host branch it has). CI cannot catch this; curl the production URL after deploy.`),
       )
   }
 
@@ -180,28 +199,28 @@ async function after($: Engine, call: Call, ok: boolean, isNewFile: boolean, now
     if (ok && /\b(npm|bun|pnpm)\s+run\s+typecheck\b|\btsc\b[^|;&]*--noEmit/.test(c)) lastTypecheck = now
     if (ok && /\b(npm|bun|pnpm)\s+run\s+build\b|\bnext\s+build\b/.test(c)) lastBuild = now
 
-    const shipping = /\bgit\s+push\b|\bgh\s+pr\s+create\b/.test(c)
+    const shipping = /\bgit(?:\s+-C\s+\S+)?\s+push\b|\bgh\s+pr\s+create\b/.test(c)
     if (shipping && lastTsEdit > lastTypecheck)
       out.push(
         trip($, `typecheck:${lastTsEdit}`, 'Pushed TypeScript edits without npm run typecheck',
-          'TypeScript files were edited since the last `npm run typecheck`. Neither the build nor PR CI typechecks this repo, so a type error ships to production. Run `npm run typecheck` now and fix anything new.'),
+          'TypeScript files were edited since the last typecheck. The user marked this repo as one whose build and CI don\'t typecheck, so a type error ships to production. Run the repo\'s typecheck (e.g. `npm run typecheck` or `tsc --noEmit`) now and fix anything new.'),
       )
-    if (/\bgit\s+push\b/.test(c) && lastEdit > lastReview)
+    if (cfg.reviewBeforePush && /\bgit(?:\s+-C\s+\S+)?\s+push\b/.test(c) && lastEdit > lastReview)
       out.push(
         trip($, `review:${lastEdit}`, 'Pushed without a local /code-review since the last edit',
-          'Code was pushed with edits made since the last local /code-review. Rule: run /code-review high before every branch\'s first push and after fixing a finding; every extra CI round costs paid Actions minutes.'),
+          'Code was pushed with edits made since the last local /code-review. Rule: run /code-review before every branch\'s first push and after fixing a finding.'),
       )
     if (/\bgh\s+pr\s+merge\b/.test(c) && lastBuildDepEdit > lastBuild)
       out.push(
         trip($, `build:${lastBuildDepEdit}`, 'Merging a build-config change without a local npm run build',
-          'package.json or next.config changed this session and no local `npm run build` ran since. PR checks never build this repo (the Vercel preview step is ignored), so the production build after merge is the first real one.'),
+          'package.json or next.config changed this session and no local build ran since. The user marked this repo as one whose PR checks don\'t build it, so the production build after merge is the first real one. Run the build locally first.'),
       )
   }
 
   if (call.tool === 'Skill' && /code-review/.test(String(call.skill ?? ''))) lastReview = now
   if (call.tool === 'ReportFindings') lastReview = now
 
-  if (/supabase__apply_migration$/.test(call.tool) && ok) {
+  if (cfg.supabase && /supabase__apply_migration$/.test(call.tool) && ok) {
     pendingNotify = true
     migrations += 1
     const q = String(call.query ?? '')
@@ -329,7 +348,18 @@ async function handoffReport($: Engine): Promise<{ lines: string[]; keys: string
 
 // ---- hooks -------------------------------------------------------------------
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const o = (options ?? {}) as Record<string, unknown>
+  cfg = {
+    holdEnvSourcing: flag(o.holdEnvSourcing, true),
+    mutationCheckTests: flag(o.mutationCheckTests, true),
+    reviewBeforePush: flag(o.reviewBeforePush, false),
+    uncheckedRepos: list(o.uncheckedRepos),
+    middlewareRouteRepos: list(o.middlewareRouteRepos),
+    bannedStrings: list(o.bannedStrings),
+    supabase: flag(o.supabase, false),
+  }
+
   on('session.start', async ($, e, next) => {
     sessionId = await $.session.id()
     const prior = (await $.store.get(SNAP + sessionId)) as Snapshot | undefined

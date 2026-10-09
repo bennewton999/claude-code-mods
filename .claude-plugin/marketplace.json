@@ -31,8 +31,8 @@
     {
       "name": "session-hygiene",
       "source": "./session-hygiene",
-      "description": "Tripwires for Ben's memory rules, and a handoff card of open loops left by earlier sessions",
-      "version": "0.1.0",
+      "description": "Configurable tripwires for the rules you keep forgetting, and a handoff card of open loops left by earlier sessions",
+      "version": "0.2.0",
       "author": {
         "name": "Ben Newton",
         "url": "https://benenewton.com"

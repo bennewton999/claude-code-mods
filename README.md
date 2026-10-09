@@ -21,7 +21,7 @@ Run it on your own sessions. Your ten ideas will probably come out different fro
 |---|---|---|
 | [session-fleet](session-fleet) | A board of every live session, a "needs you" row when another session is blocked on you, and a guard when two sessions write to the same worktree | `/fleet` |
 | [ship-tracker](ship-tracker) | A row per PR: CI → merged → production deployment → live, a warning when a merge never deploys, and a receipt line after every answer | `/ship-track <pr>` |
-| [session-hygiene](session-hygiene) | Tripwires for your own rules (typecheck before push, review before push, mutation-check new tests and more), plus a handoff card of loose ends from earlier sessions | `/handoff`, `/handoff clear` |
+| [session-hygiene](session-hygiene) | Configurable tripwires (typecheck before push, review before push, mutation-check new tests and more), plus a handoff card of loose ends from earlier sessions | `/handoff`, `/handoff clear` |
 | [session-activity](session-activity) | A ledger of everything that left the machine, a hold on database writes, and what each session is waiting on | `/ledger`, `/waiting` |
 | [context-gauge](context-gauge) | Context fill in the status line, warnings before compaction, and a snapshot of in-flight work that survives compaction | `/context-log` |
 
@@ -107,17 +107,35 @@ Every session writes one record to a key-value store that all sessions on the ma
 
 ### session-hygiene
 
-Tripwires for rules you keep forgetting. When one trips you get a transcript line and a toast, and Claude gets a reminder with the tool result so it can act on it. Out of the box these are **my** rules. Edit the `RULES_CONFIG` block at the top of [`session-hygiene/hooks/register.tsx`](session-hygiene/hooks/register.tsx) to make them yours.
+Tripwires for rules you keep forgetting. When one trips you get a transcript line and a toast, and Claude gets a reminder with the tool result so it can act on it.
 
-- Pushing or opening a PR after TypeScript edits with no `npm run typecheck` since (scoped to `STRICT_REPO`)
-- Pushing with edits made since the last local `/code-review`
-- Writing a new test file: mutation-check it
-- A new top-level `src/app/<x>/page.tsx` in `STRICT_REPO`: add the route to the middleware passthrough
-- `apply_migration`: run `NOTIFY pgrst, 'reload schema'`, and revoke default grants on new tables
-- Merging after `package.json` or `next.config` changes with no local `npm run build`
-- Banned strings in written files (`BANNED`)
+Every rule is a plugin option. You set them on the install screen, or later in `/config`. Out of the box only the two generic rules are on; the rest stay off until you point them at your repos.
 
-Two rules hold the command with a Run it or Stop question instead: sourcing an env file into the shell, and using a Supabase service-role key.
+| Option | Default | What it does |
+| --- | --- | --- |
+| `holdEnvSourcing` | on | Asks Run it or Stop before a command sources a `.env` file into the shell |
+| `mutationCheckTests` | on | When Claude writes a new test file, reminds it to prove the test fails without the code it covers |
+| `reviewBeforePush` | off | Flags a `git push` with edits made since the last local `/code-review` |
+| `uncheckedRepos` | none | Path fragments (`/my-app/`) of repos whose CI doesn't typecheck or build. There it flags a push after TypeScript edits with no typecheck, and a merge after `package.json` or `next.config` changes with no local build |
+| `middlewareRouteRepos` | none | Next.js repos whose `src/middleware.ts` allowlists routes. A new top-level `src/app/<route>/page.tsx` gets a reminder to add it |
+| `bannedStrings` | none | Case-insensitive text that should never be written into a file |
+| `supabase` | off | Asks before a command uses a service-role key; after `apply_migration`, reminds Claude to run `NOTIFY pgrst, 'reload schema'` and to revoke default grants on new tables |
+
+If you load the mod from a clone instead of the marketplace, set the same options in `~/.claude/settings.json`:
+
+```json
+{
+  "pluginConfigs": {
+    "session-hygiene": {
+      "options": {
+        "uncheckedRepos": ["/my-app/"],
+        "bannedStrings": ["lorem ipsum"],
+        "supabase": true
+      }
+    }
+  }
+}
+```
 
 The **handoff card**: after each turn a session saves its open loops (open PRs, uncommitted or unpushed worktrees, a question it left you). A new session lists loops from sessions that ended or went quiet, re-checked live first. `/handoff` shows them again, `/handoff clear` dismisses them.
 
