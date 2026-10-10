@@ -1,4 +1,5 @@
 # Claude Code mods for running a lot of sessions at once
+[![HOL Guard](https://img.shields.io/endpoint?url=https%3A%2F%2Fhol.org%2Fapi%2Fregistry%2Fbadges%2Fplugin%3Fslug%3Dbennewton999%252Fclaude-code-mods%26metric%3Dtrust)](https://hol.org/registry/plugins/bennewton999%2Fclaude-code-mods)
 
 Five [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview) built from how I actually use Claude Code: four to six sessions at a time, mostly in one repo, a lot of PRs going to production, and a pile of rules I keep forgetting to check.
 
