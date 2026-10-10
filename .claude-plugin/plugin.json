@@ -1,0 +1,14 @@
+{
+  "name": "bennewton-mods",
+  "displayName": "Ben Newton mods",
+  "version": "0.1.0",
+  "description": "Marketplace of five Claude Code mods for running several sessions at once: session-fleet, ship-tracker, session-hygiene, session-activity, and context-gauge. Add it with /plugin marketplace add bennewton999/claude-code-mods, then install each mod by name.",
+  "author": {
+    "name": "Ben Newton",
+    "url": "https://benenewton.com"
+  },
+  "homepage": "https://github.com/bennewton999/claude-code-mods",
+  "repository": "https://github.com/bennewton999/claude-code-mods",
+  "license": "MIT",
+  "keywords": ["marketplace", "mods", "sessions"]
+}
