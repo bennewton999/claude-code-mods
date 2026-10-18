@@ -79,8 +79,8 @@ claude --plugin-dir ~/claude-code-mods/session-fleet
 
 Every session writes one record to a key-value store that all sessions on the machine share (`$.store`), with a heartbeat every 30 seconds. Three minutes without a heartbeat and the session counts as gone.
 
-- **`/fleet`** opens a pane with every live session: a status dot, its first prompt (there's no session title API), the worktrees it's touching, branch, PR, last action and how long ago. Waiting sessions sort to the top, and a worktree two live sessions share gets a ⚠.
-- **Switch by clicking.** In the desktop app, click another session's title in the pane to jump to it, the same as clicking it in the sidebar. Terminal sessions show their title as plain text.
+- **Fleet board.** A pane with a card for every live session: a status dot, its name (the first prompt until you rename it; there's no session title API), the worktrees it's touching, branch, PR, last action and how long ago. Waiting sessions sort to the top, and a worktree two live sessions share gets a ⚠. The board opens when a session starts; `/fleet` or the toggle above the prompt shows and hides it.
+- **Switch and rename.** In the desktop app, each card for another session has a **Switch →** button that jumps to it, the same as clicking it in the sidebar. Terminal sessions have no Switch button. **✎ Rename** gives a session a name that every session's board shows; saving it empty goes back to the first prompt.
 - **Project pills.** Each session gets a pill naming its repo. To name and color your own projects, set `projectPills` to `Label:regex:color` entries separated by `;`, the regex tested against the repo folder name:
 
   ```json
@@ -90,7 +90,7 @@ Every session writes one record to a key-value store that all sessions on the ma
     }
   }
   ```
-- **Needs-you row.** When another session is blocked on you, a row shows above your prompt with the reason and how long it has waited, plus a toast. "Blocked" means a permission prompt, a question dialog, or a turn that ended with a question mark. That last one is a guess.
+- **Needs you.** When another session is blocked on you, its card gets a yellow **⚑ NEEDS YOU** badge and border, and a row with the same badge shows above your prompt with the reason, how long it has waited and a **Switch →** button, plus a toast. "Blocked" means a permission prompt, a question dialog, or a turn that ended with a question mark. That last one is a guess.
 - **Worktree guard.** The first session to edit a file or run a mutating git command (commit, checkout, rebase, push…) in a worktree claims it. A second live session that tries gets a Proceed or Stop question naming the other session, its branch and last action. Claims let go after 30 minutes idle.
 
 ![The needs-you row above the prompt](docs/screenshots/needs-you.png)

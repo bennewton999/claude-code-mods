@@ -2,14 +2,19 @@ import type { EngineInterface as Engine, Register, Timer } from 'claude-code'
 
 // session-fleet: one registry of live sessions in $.store (shared by every
 // session on the machine), read three ways:
-//   1. /fleet opens a pane listing every live session; click a desktop
-//      session's title to switch to it, pills tag its project
-//   2. the band above the prompt flags other sessions that are waiting on you
+//   1. a pane listing every live session, opened at every session start.
+//      Click anywhere on another desktop session's card to switch to it; click
+//      a session's name to rename it (kept in the store, shared). Pills tag
+//      the project. The band's toggle or /fleet shows and hides it
+//   2. the band above the prompt flags other sessions that are waiting on you,
+//      and always carries the board's show/hide toggle
 //   3. edits and mutating git in a worktree another live session claimed first
 //      are held with a question naming that session
 
 const PANE = 'fleet'
 const PREFIX = 's:'
+const NAME = 'name:' // a rename from the board, by session id; outside PREFIX
+const LEGACY_AUTO_OPEN = 'pref:autoOpen'
 const ALIVE_MS = 3 * 60_000 // no heartbeat for this long = session is gone
 const CLAIM_MS = 30 * 60_000 // a worktree untouched for this long is released
 const PRUNE_MS = 24 * 60 * 60_000
@@ -58,8 +63,8 @@ const me: Rec = {
 
 let lastWrite = 0
 let lastRepoRefresh = 0
-let paneOpen = false
 let timers: Timer[] = []
+let editing: string | null = null // the session id whose name is being edited
 const toplevelCache = new Map<string, string | null>()
 const allowed = new Set<string>() // worktrees the user said to proceed in
 const toasted = new Map<string, number>() // other session id -> waitingSince toasted
@@ -119,6 +124,46 @@ const ago = (now: number, t: number) => {
   return `${Math.round(s / 3600)}h`
 }
 
+// The needs-you badge: black on solid yellow, readable in light and dark
+const NEEDS_FG = '#000000'
+const NEEDS_BG = '#facc15'
+
+// A failed lookup reads as closed, so the needs-you band still draws
+const isPaneOpen = async ($: Engine) => {
+  try {
+    return (await $.ui.panes()).some(p => p.id === PANE)
+  } catch {
+    return false
+  }
+}
+
+async function openBoard($: Engine) {
+  const r = await $.ui.open({ id: PANE, title: 'Session fleet' })
+  $.ui.invalidate('ui.render')
+  return r
+}
+
+async function closeBoard($: Engine) {
+  await $.ui.close({ id: PANE })
+  $.ui.invalidate('ui.render')
+}
+
+async function toggleBoard($: Engine) {
+  if (await isPaneOpen($)) await closeBoard($)
+  else await openBoard($)
+}
+
+const nameOf = async ($: Engine, r: Rec) =>
+  ((await $.store.get(NAME + r.id)) as string | undefined) || r.task || '(no prompt yet)'
+
+async function rename($: Engine, id: string, value: string) {
+  const v = value.replace(/\s+/g, ' ').trim()
+  if (v) await $.store.set(NAME + id, v.slice(0, 80))
+  else await $.store.delete(NAME + id) // empty: back to the first prompt
+  editing = null
+  $.ui.invalidate('ui.render')
+}
+
 async function save($: Engine, force = false) {
   const now = await $.clock.now()
   if (!force && now - lastWrite < 2000) return
@@ -137,6 +182,7 @@ async function all($: Engine): Promise<Rec[]> {
     if (!r) continue
     if (now - r.beat > PRUNE_MS) {
       await $.store.delete(k)
+      await $.store.delete(NAME + r.id)
       continue
     }
     recs.push(r)
@@ -181,7 +227,9 @@ async function target($: Engine, e: { tool: string } & Record<string, unknown>):
     const cd = cmd.match(/(?:^|&&|;)\s*cd\s+("[^"]+"|'[^']+'|\S+)/)
     const raw = (dashC?.[1] ?? cd?.[1])?.replace(/^["']|["']$/g, '')
     const base = me.cwd || (await $.session.cwd())
-    const dir = raw ? (raw.startsWith('/') ? raw : `${base}/${raw}`).replace('~', '/Users') : base
+    const homeDir = base.match(/^\/Users\/[^/]+/)?.[0] ?? '/Users'
+    const abs = raw?.startsWith('~') ? homeDir + raw.slice(1) : raw
+    const dir = abs ? (abs.startsWith('/') ? abs : `${base}/${abs}`) : base
     return toplevel($, dir)
   }
   return null
@@ -291,8 +339,10 @@ export const register: Register = (on, options) => {
 
     await $.command.register({
       name: 'fleet',
-      description: 'Show every live Claude Code session in a pane',
+      description: 'Show or hide the session fleet board',
     })
+    await $.store.delete(LEGACY_AUTO_OPEN)
+    if (!(await isPaneOpen($))) void openBoard($)
 
     for (const t of timers) t.cancel()
     timers = [
@@ -310,18 +360,23 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'fleet' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Session fleet' })
-    paneOpen = true
-    return { text: 'Session fleet pane opened.' }
+    await toggleBoard($)
+    return { text: (await isPaneOpen($)) ? 'Fleet board shown.' : 'Fleet board hidden.' }
   })
 
+  // The band's toggle label follows the pane, however it closed
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) paneOpen = false
-    return next(e)
+    const r = await next(e)
+    if (e.id === PANE) {
+      editing = null
+      $.ui.invalidate('ui.render')
+    }
+    return r
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const human = !e.origin || HUMAN.has(e.origin.kind)
+    // The desktop app stamps typed prompts `unclassified`; good enough for a first title
+    const human = !e.origin || HUMAN.has(e.origin.kind) || (!me.task && e.origin.kind === 'unclassified')
     if (human && !me.task && !e.text.startsWith('<')) me.task = short(e.text, 70)
     await setPhase($, 'working')
     return next(e)
@@ -371,9 +426,16 @@ export const register: Register = (on, options) => {
               options: ['Proceed for this session', 'Stop'],
             },
           )
-        } catch {
-          // dismissed, or nobody to ask: allow headless runs, stop otherwise
-          answer = (await $.session.surfaces()).length === 0 ? 'Proceed for this session' : 'Stop'
+        } catch (err) {
+          // Dismissed, or nobody to ask. Only a true headless run (no surfaces and
+          // not a desktop session) proceeds; the desktop app reports no surfaces
+          // to the mod, so there an unanswerable ask must stop, not wave it through.
+          const surfaces = await $.session.surfaces()
+          $.ui.log(
+            `session-fleet: guard ask failed (${String(err)}); surfaces=[${surfaces.join(',')}] hostId=${me.hostId ?? 'null'}`,
+            { to: 'debug' },
+          )
+          answer = surfaces.length === 0 && !me.hostId ? 'Proceed for this session' : 'Stop'
         }
         await setPhase($, 'working')
         if (answer !== 'Proceed for this session') {
@@ -416,41 +478,51 @@ export const register: Register = (on, options) => {
     const below = await next(e)
     if (e.props.hasSurvey) return below
     const now = await $.clock.now()
-    const waiting = (await all($)).filter(
-      r => r.id !== me.id && isAlive(r, now) && r.phase === 'waiting',
-    )
-    if (waiting.length === 0) return below
+    const recs = await all($)
+    const live = recs.filter(r => isAlive(r, now))
+    const waiting = live.filter(r => r.id !== me.id && r.phase === 'waiting')
     const { Box, Text, Button } = $.ui.resolve(e)
+    const paneShown = await isPaneOpen($)
+    const toggle = (
+      <Button
+        key="toggle-fleet"
+        label={paneShown ? `▾ Hide fleet board` : `▸ Fleet board · ${live.length} live`}
+        plain
+        dimColor
+        onPress={() => void toggleBoard($)}
+      />
+    )
+    if (waiting.length === 0)
+      return (
+        <Box flexDirection="column">
+          <Box>{toggle}</Box>
+          {below}
+        </Box>
+      )
     const width = Math.max(30, (e.props.bodyColumns ?? 80) - 20)
+    const names = new Map<string, string>()
+    for (const r of waiting) names.set(r.id, await nameOf($, r))
     return (
       <Box flexDirection="column">
         {waiting.slice(0, 3).map(r => (
-          <Box key={r.id}>
-            <Text color="yellow" bold>
-              ⚑ Needs you{' '}
+          <Box key={r.id} gap={1}>
+            <Text color={NEEDS_FG} backgroundColor={NEEDS_BG} bold>
+              {' ⚑ NEEDS YOU '}
             </Text>
             <Text>
               {short(
-                `${r.task || r.id.slice(0, 8)} · ${r.waitingWhy ?? 'waiting'} · ${ago(now, r.waitingSince ?? r.lastAt)}`,
-                width,
+                `${names.get(r.id)} · ${r.waitingWhy ?? 'waiting'} · ${ago(now, r.waitingSince ?? r.lastAt)}`,
+                width - 16,
               )}
             </Text>
+            {r.hostId && (
+              <Button key={`band-go-${r.id}`} label="Switch →" variant="primary" onPress={() => void switchTo($, r)} />
+            )}
           </Box>
         ))}
-        <Box>
-          {waiting.length > 3 && <Text dimColor>+{waiting.length - 3} more </Text>}
-          {!paneOpen && (
-            <Button
-              key="open-fleet"
-              label="Open fleet"
-              plain
-              dimColor
-              onPress={async () => {
-                await $.ui.open({ id: PANE, title: 'Session fleet' })
-                paneOpen = true
-              }}
-            />
-          )}
+        <Box gap={1}>
+          {waiting.length > 3 && <Text dimColor>+{waiting.length - 3} more</Text>}
+          {toggle}
         </Box>
         {below}
       </Box>
@@ -459,7 +531,9 @@ export const register: Register = (on, options) => {
 
   // 1. Fleet board pane
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button } = els
+    const Input = 'Input' in els ? els.Input : null // mobile draws no field
     const now = await $.clock.now()
     const order: Record<Phase, number> = { waiting: 0, working: 1, idle: 2 }
     const live = (await all($))
@@ -468,6 +542,8 @@ export const register: Register = (on, options) => {
     const cols = Math.max(30, e.props.bodyColumns ?? 60)
     const dot: Record<Phase, string> = { waiting: '⚑', working: '●', idle: '○' }
     const color: Record<Phase, string> = { waiting: 'yellow', working: 'green', idle: 'gray' }
+    const names = new Map<string, string>()
+    for (const r of live) names.set(r.id, await nameOf($, r))
 
     // Worktrees held by more than one live session
     const holders = new Map<string, number>()
@@ -485,35 +561,77 @@ export const register: Register = (on, options) => {
             .filter(([, c]) => now - c.lastTouch < CLAIM_MS)
             .map(([t]) => (holders.get(t)! > 1 ? `⚠ ${shortTree(t)}` : shortTree(t)))
           const where = trees.length ? trees.join(', ') : home(r.cwd)
+          const name = names.get(r.id)!
+          const canSwitch = !!r.hostId && r.id !== me.id
+          const waitingOnMe = r.phase === 'waiting'
+          const p = pill(r, now)
+          const startRename = () => {
+            editing = r.id
+            $.ui.invalidate('ui.render')
+            void $.ui.focus({ requestId: PANE, key: `rename-${r.id}` }).catch(() => undefined)
+          }
           return (
-            <Box key={r.id} flexDirection="column">
+            <Box
+              key={`card-${r.id}`}
+              flexDirection="column"
+              paddingX={1}
+              borderStyle="round"
+              borderColor={waitingOnMe ? NEEDS_BG : 'gray'}
+            >
+              {waitingOnMe && (
+                <Box gap={1}>
+                  <Text color={NEEDS_FG} backgroundColor={NEEDS_BG} bold>
+                    {' ⚑ NEEDS YOU '}
+                  </Text>
+                  <Text color="yellow" bold>
+                    {short(`${r.waitingWhy ?? 'waiting'} · ${ago(now, r.waitingSince ?? r.lastAt)}`, cols - 20)}
+                  </Text>
+                </Box>
+              )}
               <Box gap={1}>
                 <Text color={color[r.phase]}>{dot[r.phase]}</Text>
-                {(() => {
-                  const p = pill(r, now)
-                  return p ? <Text color={p.fg} backgroundColor={p.bg} bold>{` ${p.label} `}</Text> : null
-                })()}
-                {r.hostId && r.id !== me.id ? (
-                  <Button
-                    key={`go-${r.id}`}
-                    label={short(r.task || '(no prompt yet)', cols - 24)}
-                    plain
-                    onPress={() => void switchTo($, r)}
-                  />
-                ) : (
-                  <Text bold>{short(r.task || '(no prompt yet)', cols - 24)}</Text>
-                )}
-                {r.id === me.id && <Text dimColor>(this)</Text>}
+                {p ? <Text color={p.fg} backgroundColor={p.bg} bold>{` ${p.label} `}</Text> : null}
+                <Text bold>{short(name, cols - 24)}</Text>
+                {r.id === me.id && <Text dimColor>(this session)</Text>}
               </Box>
-              {r.phase === 'waiting' && (
-                <Text color="yellow">  {short(`${r.waitingWhy ?? 'waiting'} · ${ago(now, r.waitingSince ?? r.lastAt)}`, cols - 2)}</Text>
+              <Text dimColor>{`  ${short(where, cols - 4)}`}</Text>
+              <Text dimColor>{`  ${short([r.branch, r.pr].filter(Boolean).join(' · ') || 'no branch', cols - 4)}`}</Text>
+              <Text dimColor>{`  ${short(`${r.last} · ${ago(now, r.lastAt)} ago`, cols - 4)}`}</Text>
+              {editing === r.id && Input ? (
+                <Box gap={1} key={`edit-${r.id}`}>
+                  <Input
+                    key={`rename-${r.id}`}
+                    value={name === '(no prompt yet)' ? '' : name}
+                    placeholder="Session name (empty resets it)"
+                    submitLabel="Save"
+                    autoFocus
+                    onSubmit={(v: string) => void rename($, r.id, v)}
+                  />
+                  <Button
+                    key={`cancel-${r.id}`}
+                    label="Cancel"
+                    variant="secondary"
+                    onPress={() => {
+                      editing = null
+                      $.ui.invalidate('ui.render')
+                    }}
+                  />
+                </Box>
+              ) : (
+                <Box gap={1}>
+                  {canSwitch && (
+                    <Button
+                      key={`go-${r.id}`}
+                      label={waitingOnMe ? 'Switch → answer it' : 'Switch →'}
+                      variant="primary"
+                      onPress={() => void switchTo($, r)}
+                    />
+                  )}
+                  {Input && (
+                    <Button key={`name-${r.id}`} label="✎ Rename" variant="secondary" onPress={startRename} />
+                  )}
+                </Box>
               )}
-              <Text dimColor>  {short(where, cols - 2)}</Text>
-              <Text dimColor>
-                {'  '}
-                {short([r.branch, r.pr].filter(Boolean).join(' · ') || 'no branch', cols - 2)}
-              </Text>
-              <Text dimColor>  {short(`${r.last} · ${ago(now, r.lastAt)} ago`, cols - 2)}</Text>
             </Box>
           )
         })}

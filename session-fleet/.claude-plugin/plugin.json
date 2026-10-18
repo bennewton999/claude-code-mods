@@ -1,6 +1,6 @@
 {
   "name": "session-fleet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Fleet board of live sessions, a needs-you beacon, and a worktree claim guard, shared across sessions",
   "author": {
     "name": "Ben Newton",
