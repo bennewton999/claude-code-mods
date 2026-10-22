@@ -1,5 +1,6 @@
 {
   "name": "bennewton-mods",
+  "strict": true,
   "owner": {
     "name": "Ben Newton",
     "url": "https://benenewton.com"
